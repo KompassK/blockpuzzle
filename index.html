@@ -808,6 +808,10 @@ function drawTray() {
       });
 
       slot.addEventListener('mousedown', e => onSlotDown(e, idx));
+      slot.addEventListener('touchstart', e => {
+        e.preventDefault();
+        onSlotDown(e.touches[0], idx);
+      }, { passive: false });
     }
     tray.appendChild(slot);
   });
@@ -870,15 +874,27 @@ document.addEventListener('mousemove', e => {
   drawBoard();
 });
 
-document.addEventListener('mouseup', e => {
+document.addEventListener('touchmove', e => {
+  if (!drag) return;
+  e.preventDefault();
+  const t = e.touches[0];
+  moveGhost(t.clientX, t.clientY);
+  const rect = document.getElementById('board').getBoundingClientRect();
+  const inBoard = t.clientX >= rect.left && t.clientX <= rect.right &&
+                  t.clientY >= rect.top  && t.clientY <= rect.bottom;
+  over = inBoard ? gridSnap(t.clientX, t.clientY) : null;
+  drawBoard();
+}, { passive: false });
+
+function onDrop(clientX, clientY) {
   if (!drag) return;
 
   const rect = document.getElementById('board').getBoundingClientRect();
-  const inBoard = e.clientX >= rect.left && e.clientX <= rect.right &&
-                  e.clientY >= rect.top  && e.clientY <= rect.bottom;
+  const inBoard = clientX >= rect.left && clientX <= rect.right &&
+                  clientY >= rect.top  && clientY <= rect.bottom;
 
   if (inBoard) {
-    const snap = gridSnap(e.clientX, e.clientY);
+    const snap = gridSnap(clientX, clientY);
     if (canFit(drag.piece.cells, snap.row, snap.col)) {
       place(drag.piece, snap.row, snap.col);
       clearLines();
@@ -905,6 +921,16 @@ document.addEventListener('mouseup', e => {
   document.getElementById('ghost').style.display = 'none';
   drawBoard();
   drawTray();
+}
+
+document.addEventListener('mouseup', e => {
+  onDrop(e.clientX, e.clientY);
+});
+
+document.addEventListener('touchend', e => {
+  if (!drag) return;
+  const t = e.changedTouches[0];
+  onDrop(t.clientX, t.clientY);
 });
 
 // ── Intention screen ──────────────────────────────────────────────────────────
