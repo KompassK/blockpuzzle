@@ -53,6 +53,7 @@ body {
   gap: 2px;
   background: #C4A882;
   padding: 2px;
+  touch-action: none;
 }
 .cell { width: 40px; height: 40px; }
 
@@ -68,6 +69,7 @@ body {
   border: 2px dashed #C4A882;
   position: relative;
   cursor: grab;
+  touch-action: none;
 }
 .slot.dragging { opacity: 0.3; cursor: default; }
 .slot.used     { opacity: 0.2; cursor: default; }
@@ -82,6 +84,7 @@ body {
   pointer-events: none;
   display: none;
   z-index: 999;
+  touch-action: none;
 }
 .gcell {
   position: absolute;
@@ -809,7 +812,7 @@ function drawTray() {
 
       slot.addEventListener('mousedown', e => onSlotDown(e, idx));
       slot.addEventListener('touchstart', e => {
-        e.preventDefault();
+        e.preventDefault(); // must be first — stops scroll before any other code runs
         onSlotDown(e.touches[0], idx);
       }, { passive: false });
     }
