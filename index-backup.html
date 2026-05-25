@@ -1,0 +1,646 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Block Puzzle</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: sans-serif;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 20px;
+  background: #FAE7CB;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* ── Score header ────────────────────────────────────────────────────────── */
+#hdr {
+  display: flex;
+  width: 380px;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.hbox { flex: 1; text-align: center; }
+.hlabel { font-size: 11px; color: #8a7060; display: block; text-transform: uppercase; letter-spacing: .05em; }
+.hval   { font-size: 26px; font-weight: bold; display: block; color: #3a2a1a; }
+
+/* ── Board ───────────────────────────────────────────────────────────────── */
+#board {
+  display: grid;
+  grid-template-columns: repeat(9, 40px);
+  grid-template-rows: repeat(9, 40px);
+  gap: 2px;
+  background: #C4A882;
+  padding: 2px;
+}
+.cell { width: 40px; height: 40px; }
+
+/* ── Piece tray ──────────────────────────────────────────────────────────── */
+#tray {
+  display: flex;
+  gap: 24px;
+  margin-top: 24px;
+}
+.slot {
+  width: 108px;
+  height: 108px;
+  border: 2px dashed #C4A882;
+  position: relative;
+  cursor: grab;
+}
+.slot.dragging { opacity: 0.3; cursor: default; }
+.slot.used     { opacity: 0.2; cursor: default; }
+.pcell {
+  position: absolute;
+  border: 1px solid rgba(0,0,0,0.1);
+}
+
+/* ── Drag ghost ──────────────────────────────────────────────────────────── */
+#ghost {
+  position: fixed;
+  pointer-events: none;
+  display: none;
+  z-index: 999;
+}
+.gcell {
+  position: absolute;
+  opacity: 0.85;
+  border: 1px solid rgba(0,0,0,0.15);
+}
+
+/* ── Level-up animation ──────────────────────────────────────────────────── */
+#levelup-overlay {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) scale(0.1);
+  font-size: 48px;
+  font-weight: bold;
+  color: #fff;
+  text-shadow: 0 2px 12px rgba(0,0,0,0.55);
+  pointer-events: none;
+  z-index: 1000;
+  white-space: nowrap;
+  animation: levelup 2s ease-out forwards;
+}
+@keyframes levelup {
+  0%   { transform: translate(-50%, -50%) scale(0.1); opacity: 0; }
+  25%  { transform: translate(-50%, -50%) scale(1.15); opacity: 1; }
+  55%  { transform: translate(-50%, -50%) scale(1);    opacity: 1; }
+  100% { transform: translate(-50%, -50%) scale(1);    opacity: 0; }
+}
+
+/* ── Start screen overlay ────────────────────────────────────────────────── */
+#start-screen {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(250,231,203,0.75);
+  z-index: 500;
+}
+#start-btn {
+  padding: 16px 44px;
+  font-size: 22px;
+  font-weight: bold;
+  cursor: pointer;
+  background: #4E9FBC;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+}
+#start-btn:hover { background: #3d8eab; }
+
+/* ── Buttons ─────────────────────────────────────────────────────────────── */
+#end-game-btn, #new-game-btn {
+  margin-top: 14px;
+  padding: 10px 28px;
+  font-size: 16px;
+  font-weight: bold;
+  cursor: pointer;
+  border-radius: 4px;
+  border: 2px solid #C4A882;
+  background: #FAE7CB;
+  color: #3a2a1a;
+}
+#end-game-btn:hover, #new-game-btn:hover { background: #f0d8b0; }
+
+/* ── Game over message ───────────────────────────────────────────────────── */
+#msg {
+  margin-top: 20px;
+  font-size: 18px;
+  font-weight: bold;
+  text-align: center;
+  max-width: 380px;
+  line-height: 1.6;
+  white-space: pre-line;
+  color: #3a2a1a;
+}
+</style>
+</head>
+<body>
+
+<div id="hdr">
+  <div class="hbox">
+    <span class="hlabel">High Score</span>
+    <span id="pb" class="hval">0</span>
+  </div>
+  <div class="hbox">
+    <span class="hlabel">Daily Best</span>
+    <span id="db" class="hval">0</span>
+  </div>
+  <div class="hbox">
+    <span class="hlabel">Level</span>
+    <span id="lv" class="hval">1</span>
+  </div>
+  <div class="hbox">
+    <span class="hlabel">Score</span>
+    <span id="sc" class="hval">0</span>
+  </div>
+</div>
+
+<div id="board"></div>
+<div id="tray" style="display:none"></div>
+<div id="ghost"></div>
+<button id="end-game-btn" style="display:none" onclick="endGame()">End Game</button>
+<div id="msg"></div>
+
+<div id="start-screen">
+  <button id="start-btn" onclick="startGame()">Start Game</button>
+</div>
+
+<script>
+// ── Constants ─────────────────────────────────────────────────────────────────
+
+const SZ   = 9;
+const CS   = 40;
+const GAP  = 2;
+const STEP = CS + GAP;
+
+// Alternating background colours for the nine 3×3 boxes
+const BOX_COLORS = ['#E8DDD0', '#F5EFE6'];
+
+// Colour palette – one is picked at random when a piece spawns
+const PIECE_COLORS = ['#59B292', '#FFC94D', '#FA6781', '#7B6EA6', '#4E9FBC', '#F4A556'];
+
+// All 26 piece shapes, indexed 0–25.
+// Board values: 0 = empty  |  '#hex' = filled (piece colour)  |  2 = locked obstacle
+const PIECE_DEFS = [
+  /* 0 */ [[0,0]],                                                              // single
+  /* 1 */ [[0,0],[0,1]],                                                        // domino H
+  /* 2 */ [[0,0],[1,0]],                                                        // domino V
+  /* 3 */ [[0,0],[0,1],[0,2]],                                                  // tromino H
+  /* 4 */ [[0,0],[1,0],[2,0]],                                                  // tromino V
+  /* 5 */ [[0,0],[0,1],[1,0]],                                                  // L-tromino
+  /* 6 */ [[0,0],[0,1],[1,1]],                                                  // L-tromino
+  /* 7 */ [[0,0],[1,0],[1,1]],                                                  // L-tromino
+  /* 8 */ [[0,1],[1,0],[1,1]],                                                  // L-tromino
+  /* 9 */ [[0,0],[0,1],[1,0],[1,1]],                                            // 2×2 square
+  /*10 */ [[0,0],[0,1],[0,2],[0,3]],                                            // straight-4 H
+  /*11 */ [[0,0],[1,0],[2,0],[3,0]],                                            // straight-4 V
+  /*12 */ [[0,0],[0,1],[0,2],[1,0]],                                            // L-tetromino
+  /*13 */ [[0,0],[0,1],[0,2],[1,2]],                                            // J-tetromino
+  /*14 */ [[0,0],[1,0],[2,0],[2,1]],                                            // L-tetromino
+  /*15 */ [[0,0],[1,0],[2,0],[0,1]],                                            // J-tetromino
+  /*16 */ [[0,1],[1,1],[2,0],[2,1]],                                            // J-tetromino
+  /*17 */ [[0,0],[0,1],[1,1],[2,1]],                                            // L-tetromino
+  /*18 */ [[0,0],[0,1],[0,2],[0,3],[0,4]],                                      // straight-5 H
+  /*19 */ [[0,0],[1,0],[2,0],[3,0],[4,0]],                                      // straight-5 V
+  /*20 */ [[0,0],[0,1],[1,0],[1,1],[2,0],[2,1]],                                // 2×3 block
+  /*21 */ [[0,0],[0,1],[0,2],[1,0],[1,1],[1,2]],                                // 3×2 block
+  /*22 */ [[0,0],[0,1],[0,2],[1,0],[1,1],[1,2],[2,0],[2,1],[2,2]],              // 3×3 block
+  /*23 */ [[0,0],[1,0],[2,0],[2,1],[2,2]],                                      // L-pentomino (3-down + 3-across)
+  /*24 */ [[0,1],[1,0],[1,1],[1,2],[2,1]],                                      // plus / cross
+  /*25 */ [[0,0],[1,0],[1,1],[2,0],[2,1],[2,2]],                                // staircase (left-aligned)
+];
+
+// ── Level configuration ───────────────────────────────────────────────────────
+//
+// threshold    : cumulative score required to reach this level (81 pts per level)
+// locked       : obstacle cells placed randomly when the level starts
+// batchRefresh : false = each placed piece is replaced immediately
+//                true  = all 3 must be placed before a new trio appears
+// scoreCols    : completed columns score points
+// scoreBoxes   : completed 3×3 boxes score points
+// newPieces    : include pieces 23–25 (the three new shapes) in the pool
+//
+const LEVELS = [
+  /* 1 */ { threshold:   0, locked:  0, batchRefresh: false, scoreCols: true, scoreBoxes: true,  newPieces: false },
+  /* 2 */ { threshold:  81, locked:  2, batchRefresh: false, scoreCols: true, scoreBoxes: true,  newPieces: false },
+  /* 3 */ { threshold: 162, locked:  4, batchRefresh: false, scoreCols: true, scoreBoxes: true,  newPieces: false },
+  /* 4 */ { threshold: 243, locked:  6, batchRefresh: true,  scoreCols: true, scoreBoxes: false, newPieces: false },
+  /* 5 */ { threshold: 324, locked:  8, batchRefresh: true,  scoreCols: true, scoreBoxes: false, newPieces: false },
+  /* 6 */ { threshold: 405, locked: 10, batchRefresh: true,  scoreCols: true, scoreBoxes: false, newPieces: false },
+  /* 7 */ { threshold: 486, locked: 12, batchRefresh: true,  scoreCols: true, scoreBoxes: true,  newPieces: true  },
+  /* 8 */ { threshold: 567, locked: 14, batchRefresh: true,  scoreCols: true, scoreBoxes: true,  newPieces: true  },
+  /* 9 */ { threshold: 648, locked: 15, batchRefresh: true,  scoreCols: true, scoreBoxes: true,  newPieces: true  },
+];
+
+// ── Persistence ───────────────────────────────────────────────────────────────
+
+const PB_KEY = 'bp_pb';
+function dailyKey()  { return 'bp_db_' + new Date().toISOString().slice(0, 10); }
+function loadPB()    { return parseInt(localStorage.getItem(PB_KEY)     || '0', 10); }
+function loadDaily() { return parseInt(localStorage.getItem(dailyKey()) || '0', 10); }
+function savePB(v)    { localStorage.setItem(PB_KEY,     v); }
+function saveDaily(v) { localStorage.setItem(dailyKey(), v); }
+
+// ── Game state ────────────────────────────────────────────────────────────────
+
+let board = [];   // SZ×SZ — 0:empty  '#hex':filled  2:locked
+let slots = [];   // [{cells,color}|null, …] — null = used slot (batch mode)
+let drag  = null; // { slotIdx, piece:{cells,color} }
+let over  = null; // { row, col } snapped grid position while dragging
+let dead  = false;
+let score = 0;
+let level = 1;    // 1–9
+
+// ── Piece helpers ─────────────────────────────────────────────────────────────
+
+function rnd() {
+  const cfg  = LEVELS[level - 1];
+  const pool = cfg.newPieces ? PIECE_DEFS : PIECE_DEFS.slice(0, 23);
+  const cells = pool[Math.floor(Math.random() * pool.length)];
+  const color = PIECE_COLORS[Math.floor(Math.random() * PIECE_COLORS.length)];
+  return { cells, color };
+}
+
+function bounds(cells) {
+  let mr = 0, mc = 0;
+  cells.forEach(([r, c]) => { if (r > mr) mr = r; if (c > mc) mc = c; });
+  return { rows: mr + 1, cols: mc + 1 };
+}
+
+function canFit(cells, r0, c0) {
+  return cells.every(([dr, dc]) => {
+    const r = r0 + dr, c = c0 + dc;
+    return r >= 0 && r < SZ && c >= 0 && c < SZ && !board[r][c];
+  });
+}
+
+function place({ cells, color }, r0, c0) {
+  cells.forEach(([dr, dc]) => { board[r0 + dr][c0 + dc] = color; });
+}
+
+// Convert a 6-char hex colour to rgba() for the drag preview tint
+function hexToRgba(hex, a) {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r},${g},${b},${a})`;
+}
+
+// ── Line clearing ─────────────────────────────────────────────────────────────
+
+// Checks and clears completed rows, columns, and (at level 7+) 3×3 boxes.
+// Each completed line scores 9 points. Locked cells clear along with their line.
+function clearLines() {
+  const { scoreCols, scoreBoxes } = LEVELS[level - 1];
+  let completions = 0;
+  const toClear = new Set(); // flat cell indices (r*SZ+c) to set back to 0
+
+  // Rows (always active)
+  for (let r = 0; r < SZ; r++) {
+    if (board[r].every(v => v)) {
+      completions++;
+      for (let c = 0; c < SZ; c++) toClear.add(r * SZ + c);
+    }
+  }
+
+  // Columns (level 4+)
+  if (scoreCols) {
+    for (let c = 0; c < SZ; c++) {
+      if (board.every(row => row[c])) {
+        completions++;
+        for (let r = 0; r < SZ; r++) toClear.add(r * SZ + c);
+      }
+    }
+  }
+
+  // 3×3 boxes (level 7+)
+  if (scoreBoxes) {
+    for (let br = 0; br < 3; br++) {
+      for (let bc = 0; bc < 3; bc++) {
+        let full = true;
+        outer: for (let dr = 0; dr < 3; dr++)
+          for (let dc = 0; dc < 3; dc++)
+            if (!board[br * 3 + dr][bc * 3 + dc]) { full = false; break outer; }
+        if (full) {
+          completions++;
+          for (let dr = 0; dr < 3; dr++)
+            for (let dc = 0; dc < 3; dc++)
+              toClear.add((br * 3 + dr) * SZ + (bc * 3 + dc));
+        }
+      }
+    }
+  }
+
+  for (const idx of toClear) board[Math.floor(idx / SZ)][idx % SZ] = 0;
+  if (completions > 0) score += completions * SZ;
+  return completions;
+}
+
+// ── Game-over check ───────────────────────────────────────────────────────────
+
+function isGameOver() {
+  const active = slots.filter(s => s !== null);
+  if (active.length === 0) return false; // all placed, refresh pending
+  return active.every(({ cells }) => {
+    for (let r = 0; r < SZ; r++)
+      for (let c = 0; c < SZ; c++)
+        if (canFit(cells, r, c)) return false;
+    return true;
+  });
+}
+
+// ── Level progression ─────────────────────────────────────────────────────────
+
+function resetBoardForLevel() {
+  board = Array.from({ length: SZ }, () => Array(SZ).fill(0));
+  const { locked } = LEVELS[level - 1];
+  let placed = 0;
+  while (placed < locked) {
+    const r = Math.floor(Math.random() * SZ);
+    const c = Math.floor(Math.random() * SZ);
+    if (board[r][c] === 0) { board[r][c] = 2; placed++; }
+  }
+  slots = [rnd(), rnd(), rnd()];
+}
+
+// Advances level(s) if the score threshold has been crossed. Returns true if
+// any level-up occurred (board and slots have been reset by resetBoardForLevel).
+function checkLevelUp() {
+  if (level >= 9) return false;
+  let leveled = false;
+  while (level < 9 && score >= LEVELS[level].threshold) {
+    level++;
+    leveled = true;
+  }
+  if (leveled) {
+    resetBoardForLevel();
+    showLevelUpAnimation(level);
+  }
+  return leveled;
+}
+
+function showLevelUpAnimation(lvl) {
+  const old = document.getElementById('levelup-overlay');
+  if (old) old.remove();
+  const el = document.createElement('div');
+  el.id = 'levelup-overlay';
+  el.textContent = `Level Up: Level ${lvl}`;
+  document.body.appendChild(el);
+  el.addEventListener('animationend', () => el.remove());
+}
+
+// ── Rendering ─────────────────────────────────────────────────────────────────
+
+function drawScores() {
+  document.getElementById('sc').textContent = score;
+  document.getElementById('lv').textContent = level;
+  document.getElementById('pb').textContent = loadPB();
+  document.getElementById('db').textContent = loadDaily();
+}
+
+function drawBoard() {
+  const cells = document.querySelectorAll('.cell');
+
+  // Pre-compute which cells are in the drag preview
+  const preview = new Map(); // idx → 'valid' | 'invalid'
+  if (drag && over) {
+    const valid = canFit(drag.piece.cells, over.row, over.col);
+    drag.piece.cells.forEach(([dr, dc]) => {
+      const r = over.row + dr, c = over.col + dc;
+      if (r >= 0 && r < SZ && c >= 0 && c < SZ)
+        preview.set(r * SZ + c, valid ? 'valid' : 'invalid');
+    });
+  }
+
+  cells.forEach((el, i) => {
+    const r  = Math.floor(i / SZ), c = i % SZ;
+    const v  = board[r][c];
+    const bg = BOX_COLORS[(Math.floor(r / 3) + Math.floor(c / 3)) % 2];
+
+    if (preview.has(i)) {
+      el.style.background = preview.get(i) === 'valid'
+        ? hexToRgba(drag.piece.color, 0.55)
+        : 'rgba(210,60,60,0.55)';
+    } else if (v === 2) {
+      el.style.background = '#3D3D3D';
+    } else if (v) {
+      el.style.background = v; // stored colour string
+    } else {
+      el.style.background = bg;
+    }
+  });
+}
+
+function drawTray() {
+  const tray = document.getElementById('tray');
+  tray.innerHTML = '';
+  slots.forEach((slotObj, idx) => {
+    const slot = document.createElement('div');
+
+    if (slotObj === null) {
+      slot.className = 'slot used';
+    } else {
+      slot.className = 'slot' + (drag && drag.slotIdx === idx ? ' dragging' : '');
+      const { cells, color } = slotObj;
+      const b  = bounds(cells);
+      const S  = 100;
+      const cs = Math.min(24, Math.floor(S / Math.max(b.rows, b.cols)));
+      const ox = Math.floor((108 - b.cols * cs) / 2);
+      const oy = Math.floor((108 - b.rows * cs) / 2);
+
+      cells.forEach(([r, c]) => {
+        const d = document.createElement('div');
+        d.className = 'pcell';
+        d.style.cssText = `left:${ox + c*cs}px;top:${oy + r*cs}px;` +
+                          `width:${cs-1}px;height:${cs-1}px;background:${color}`;
+        slot.appendChild(d);
+      });
+
+      slot.addEventListener('mousedown', e => onSlotDown(e, idx));
+    }
+    tray.appendChild(slot);
+  });
+}
+
+// ── Ghost ─────────────────────────────────────────────────────────────────────
+
+function buildGhost({ cells, color }) {
+  const ghost = document.getElementById('ghost');
+  ghost.innerHTML = '';
+  cells.forEach(([r, c]) => {
+    const d = document.createElement('div');
+    d.className = 'gcell';
+    d.style.cssText = `left:${c*CS}px;top:${r*CS}px;` +
+                      `width:${CS-1}px;height:${CS-1}px;background:${color}`;
+    ghost.appendChild(d);
+  });
+  ghost.style.display = 'block';
+}
+
+function moveGhost(mx, my) {
+  if (!drag) return;
+  const { rows, cols } = bounds(drag.piece.cells);
+  const ghost = document.getElementById('ghost');
+  ghost.style.left = (mx - cols * CS / 2) + 'px';
+  ghost.style.top  = (my - rows * CS / 2) + 'px';
+}
+
+// ── Grid snap ─────────────────────────────────────────────────────────────────
+
+function gridSnap(mx, my) {
+  const rect = document.getElementById('board').getBoundingClientRect();
+  const { rows, cols } = bounds(drag.piece.cells);
+  const px = mx - cols * CS / 2;
+  const py = my - rows * CS / 2;
+  return {
+    row: Math.round((py - rect.top  - GAP) / STEP),
+    col: Math.round((px - rect.left - GAP) / STEP),
+  };
+}
+
+// ── Event handlers ────────────────────────────────────────────────────────────
+
+function onSlotDown(e, idx) {
+  if (dead || !slots[idx]) return;
+  e.preventDefault();
+  drag = { slotIdx: idx, piece: slots[idx] };
+  buildGhost(drag.piece);
+  moveGhost(e.clientX, e.clientY);
+  drawTray();
+}
+
+document.addEventListener('mousemove', e => {
+  if (!drag) return;
+  moveGhost(e.clientX, e.clientY);
+  const rect = document.getElementById('board').getBoundingClientRect();
+  const inBoard = e.clientX >= rect.left && e.clientX <= rect.right &&
+                  e.clientY >= rect.top  && e.clientY <= rect.bottom;
+  over = inBoard ? gridSnap(e.clientX, e.clientY) : null;
+  drawBoard();
+});
+
+document.addEventListener('mouseup', e => {
+  if (!drag) return;
+
+  const rect = document.getElementById('board').getBoundingClientRect();
+  const inBoard = e.clientX >= rect.left && e.clientX <= rect.right &&
+                  e.clientY >= rect.top  && e.clientY <= rect.bottom;
+
+  if (inBoard) {
+    const snap = gridSnap(e.clientX, e.clientY);
+    if (canFit(drag.piece.cells, snap.row, snap.col)) {
+      place(drag.piece, snap.row, snap.col);
+      clearLines();
+
+      // Level-up resets board + all slots, so only manage slots ourselves when
+      // no level-up occurred.
+      const leveled = checkLevelUp();
+      if (!leveled) {
+        if (LEVELS[level - 1].batchRefresh) {
+          slots[drag.slotIdx] = null;
+          if (slots.every(s => s === null)) slots = [rnd(), rnd(), rnd()];
+        } else {
+          slots[drag.slotIdx] = rnd();
+        }
+      }
+
+      drawScores();
+      if (isGameOver()) { dead = true; endGame(); }
+    }
+  }
+
+  drag = null;
+  over = null;
+  document.getElementById('ghost').style.display = 'none';
+  drawBoard();
+  drawTray();
+});
+
+// ── Game lifecycle ────────────────────────────────────────────────────────────
+
+function startGame() {
+  document.getElementById('start-screen').style.display = 'none';
+  document.getElementById('tray').style.display = 'flex';
+  document.getElementById('end-game-btn').style.display = '';
+  slots = [rnd(), rnd(), rnd()];
+  drawTray();
+}
+
+function endGame() {
+  dead = true;
+  drag = null;
+  over = null;
+  document.getElementById('ghost').style.display = 'none';
+
+  const pb        = loadPB();
+  const daily     = loadDaily();
+  const beatPB    = score > pb;
+  const beatDaily = score > daily;
+
+  if (beatPB)    savePB(score);
+  if (beatDaily) saveDaily(score);
+
+  drawBoard();
+  drawScores();
+
+  document.getElementById('end-game-btn').style.display = 'none';
+
+  const msgEl = document.getElementById('msg');
+  let lines = [`Game Over!  Final score: ${score}`];
+  if (beatPB)         lines.push('New personal best!');
+  else if (beatDaily) lines.push('New daily best!');
+  msgEl.textContent = lines.join('\n');
+
+  const btn = document.createElement('button');
+  btn.id = 'new-game-btn';
+  btn.textContent = 'New Game';
+  btn.addEventListener('click', newGame);
+  msgEl.after(btn);
+}
+
+function newGame() {
+  const btn = document.getElementById('new-game-btn');
+  if (btn) btn.remove();
+  document.getElementById('msg').textContent = '';
+  document.getElementById('end-game-btn').style.display = '';
+  document.getElementById('tray').style.display = 'flex';
+
+  score = 0;
+  level = 1;
+  dead  = false;
+  drag  = null;
+  over  = null;
+
+  board = Array.from({ length: SZ }, () => Array(SZ).fill(0));
+  slots = [rnd(), rnd(), rnd()];
+
+  drawBoard();
+  drawTray();
+  drawScores();
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+
+board = Array.from({ length: SZ }, () => Array(SZ).fill(0));
+
+const boardEl = document.getElementById('board');
+for (let r = 0; r < SZ; r++)
+  for (let c = 0; c < SZ; c++) {
+    const d = document.createElement('div');
+    d.className = 'cell';
+    boardEl.appendChild(d);
+  }
+
+drawBoard();   // shows empty board with alternating box colours
+drawScores();  // shows persisted high-score and daily-best
+</script>
+</body>
+</html>
