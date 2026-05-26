@@ -71,7 +71,7 @@ body {
   cursor: grab;
   touch-action: none;
 }
-.slot.dragging { opacity: 0.3; cursor: default; }
+.slot.selected { border-style: solid; border-width: 2px; cursor: default; }
 .slot.used     { opacity: 0.2; cursor: default; }
 .pcell {
   position: absolute;
@@ -794,7 +794,13 @@ function drawTray() {
     if (slotObj === null) {
       slot.className = 'slot used';
     } else {
-      slot.className = 'slot' + (drag && drag.slotIdx === idx ? ' dragging' : '');
+      const isSelected = drag && drag.slotIdx === idx;
+      slot.className = 'slot' + (isSelected ? ' selected' : '');
+      if (isSelected) {
+        slot.style.borderColor = MODE_COLORS[currentMode] || '#8B6914';
+        slot.style.boxShadow   = `0 0 0 2px ${MODE_COLORS[currentMode] || '#8B6914'}`;
+      }
+
       const { cells, color } = slotObj;
       const b  = bounds(cells);
       const S  = 100;
@@ -810,37 +816,10 @@ function drawTray() {
         slot.appendChild(d);
       });
 
-      slot.addEventListener('mousedown', e => onSlotDown(e, idx));
-      slot.addEventListener('touchstart', e => {
-        e.preventDefault(); // must be first — stops scroll before any other code runs
-        onSlotDown(e.touches[0], idx);
-      }, { passive: false });
+      slot.addEventListener('click', () => onSlotClick(idx));
     }
     tray.appendChild(slot);
   });
-}
-
-// ── Ghost ─────────────────────────────────────────────────────────────────────
-
-function buildGhost({ cells, color }) {
-  const ghost = document.getElementById('ghost');
-  ghost.innerHTML = '';
-  cells.forEach(([r, c]) => {
-    const d = document.createElement('div');
-    d.className = 'gcell';
-    d.style.cssText = `left:${c*CS}px;top:${r*CS}px;` +
-                      `width:${CS-1}px;height:${CS-1}px;background:${color}`;
-    ghost.appendChild(d);
-  });
-  ghost.style.display = 'block';
-}
-
-function moveGhost(mx, my) {
-  if (!drag) return;
-  const { rows, cols } = bounds(drag.piece.cells);
-  const ghost = document.getElementById('ghost');
-  ghost.style.left = (mx - cols * CS / 2) + 'px';
-  ghost.style.top  = (my - rows * CS / 2) + 'px';
 }
 
 // ── Grid snap ─────────────────────────────────────────────────────────────────
@@ -856,20 +835,56 @@ function gridSnap(mx, my) {
   };
 }
 
-// ── Event handlers ────────────────────────────────────────────────────────────
+// ── Tap-to-select / tap-to-place ──────────────────────────────────────────────
 
-function onSlotDown(e, idx) {
+// Tap a tray slot to select it; tap the same slot again to deselect.
+function onSlotClick(idx) {
   if (dead || !slots[idx]) return;
-  e.preventDefault();
-  drag = { slotIdx: idx, piece: slots[idx] };
-  buildGhost(drag.piece);
-  moveGhost(e.clientX, e.clientY);
+  if (drag && drag.slotIdx === idx) {
+    drag = null;
+    over = null;
+  } else {
+    drag = { slotIdx: idx, piece: slots[idx] };
+  }
+  drawTray();
+  drawBoard();
+}
+
+// Attempt to place the selected piece at the given screen coordinates.
+function placePieceAt(clientX, clientY) {
+  if (!drag || dead) return;
+  const rect = document.getElementById('board').getBoundingClientRect();
+  const inBoard = clientX >= rect.left && clientX <= rect.right &&
+                  clientY >= rect.top  && clientY <= rect.bottom;
+  if (!inBoard) return;
+  const snap = gridSnap(clientX, clientY);
+  if (!canFit(drag.piece.cells, snap.row, snap.col)) return;
+
+  place(drag.piece, snap.row, snap.col);
+  clearLines();
+  drawScores();
+
+  if (score >= targetScore) {
+    showCompletionScreen();
+  } else {
+    if (MODES[currentMode].batchRefresh) {
+      slots[drag.slotIdx] = null;
+      if (slots.every(s => s === null)) slots = [rnd(), rnd(), rnd()];
+    } else {
+      slots[drag.slotIdx] = rnd();
+    }
+    if (isGameOver()) showGameOverScreen();
+  }
+
+  drag = null;
+  over = null;
+  drawBoard();
   drawTray();
 }
 
+// Mouse: update board preview as cursor moves over grid.
 document.addEventListener('mousemove', e => {
   if (!drag) return;
-  moveGhost(e.clientX, e.clientY);
   const rect = document.getElementById('board').getBoundingClientRect();
   const inBoard = e.clientX >= rect.left && e.clientX <= rect.right &&
                   e.clientY >= rect.top  && e.clientY <= rect.bottom;
@@ -877,11 +892,16 @@ document.addEventListener('mousemove', e => {
   drawBoard();
 });
 
+// Mouse: click on board to place piece.
+document.getElementById('board').addEventListener('click', e => {
+  placePieceAt(e.clientX, e.clientY);
+});
+
+// Touch: update board preview as finger moves across grid.
 document.addEventListener('touchmove', e => {
   if (!drag) return;
   e.preventDefault();
   const t = e.touches[0];
-  moveGhost(t.clientX, t.clientY);
   const rect = document.getElementById('board').getBoundingClientRect();
   const inBoard = t.clientX >= rect.left && t.clientX <= rect.right &&
                   t.clientY >= rect.top  && t.clientY <= rect.bottom;
@@ -889,51 +909,11 @@ document.addEventListener('touchmove', e => {
   drawBoard();
 }, { passive: false });
 
-function onDrop(clientX, clientY) {
-  if (!drag) return;
-
-  const rect = document.getElementById('board').getBoundingClientRect();
-  const inBoard = clientX >= rect.left && clientX <= rect.right &&
-                  clientY >= rect.top  && clientY <= rect.bottom;
-
-  if (inBoard) {
-    const snap = gridSnap(clientX, clientY);
-    if (canFit(drag.piece.cells, snap.row, snap.col)) {
-      place(drag.piece, snap.row, snap.col);
-      clearLines();
-      drawScores();
-
-      if (score >= targetScore) {
-        // Completion — show calm end screen
-        showCompletionScreen();
-      } else {
-        // Refresh the piece tray
-        if (MODES[currentMode].batchRefresh) {
-          slots[drag.slotIdx] = null;
-          if (slots.every(s => s === null)) slots = [rnd(), rnd(), rnd()];
-        } else {
-          slots[drag.slotIdx] = rnd();
-        }
-        if (isGameOver()) showGameOverScreen();
-      }
-    }
-  }
-
-  drag = null;
-  over = null;
-  document.getElementById('ghost').style.display = 'none';
-  drawBoard();
-  drawTray();
-}
-
-document.addEventListener('mouseup', e => {
-  onDrop(e.clientX, e.clientY);
-});
-
-document.addEventListener('touchend', e => {
-  if (!drag) return;
+// Touch: lift finger on board to place piece (fires after a touchmove sequence,
+// when the browser won't fire a click event).
+document.getElementById('board').addEventListener('touchend', e => {
   const t = e.changedTouches[0];
-  onDrop(t.clientX, t.clientY);
+  placePieceAt(t.clientX, t.clientY);
 });
 
 // ── Intention screen ──────────────────────────────────────────────────────────
