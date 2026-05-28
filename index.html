@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Block Puzzle</title>
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#FAE7CB">
@@ -13,12 +13,18 @@
 <link rel="apple-touch-icon" href="icon-180.png">
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
+html {
+  max-width: 100vw;
+  overflow-x: hidden;
+}
 body {
   font-family: sans-serif;
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 20px;
+  padding: 20px 0;
+  max-width: 100vw;
+  overflow-x: hidden;
   background: #FAE7CB;
   user-select: none;
   -webkit-user-select: none;
@@ -27,9 +33,11 @@ body {
 /* ── Header ──────────────────────────────────────────────────────────────── */
 #hdr {
   display: flex;
-  width: 380px;
+  width: 100%;
+  max-width: 380px;
   justify-content: space-between;
   margin-bottom: 4px;
+  padding: 0 10px;
 }
 .hbox { flex: 1; text-align: center; }
 .hlabel { font-size: 11px; color: #8a7060; display: block; text-transform: uppercase; letter-spacing: .05em; }
@@ -42,7 +50,9 @@ body {
   text-align: center;
   min-height: 16px;
   margin-bottom: 10px;
-  width: 380px;
+  width: 100%;
+  max-width: 380px;
+  padding: 0 10px;
 }
 
 /* ── Board ───────────────────────────────────────────────────────────────── */
@@ -85,6 +95,7 @@ body {
   display: none;
   z-index: 999;
   touch-action: none;
+  filter: drop-shadow(2px 2px 4px rgba(0,0,0,0.4));
 }
 .gcell {
   position: absolute;
