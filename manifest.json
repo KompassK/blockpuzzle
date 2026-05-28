@@ -2,7 +2,7 @@
   "name": "Block Puzzle",
   "short_name": "Block Puzzle",
   "description": "A mindful block-placement puzzle game",
-  "start_url": "./index.html",
+  "start_url": "/index.html",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#FAE7CB",

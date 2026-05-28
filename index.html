@@ -8,36 +8,41 @@
 <meta name="theme-color" content="#FAE7CB">
 <!-- iOS PWA -->
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Block Puzzle">
 <link rel="apple-touch-icon" href="icon-180.png">
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
-html {
-  max-width: 100vw;
-  overflow-x: hidden;
-}
+html { overflow: hidden; }
 body {
   font-family: sans-serif;
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 20px 0;
-  max-width: 100vw;
-  overflow-x: hidden;
+  /* Push content below the transparent status bar on notched iPhones */
+  padding-top: max(20px, env(safe-area-inset-top));
+  padding-bottom: env(safe-area-inset-bottom);
+  overflow: hidden;
   background: #FAE7CB;
   user-select: none;
   -webkit-user-select: none;
+}
+
+/* ── Game wrapper — scaled to fit any viewport ───────────────────────────── */
+#game-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 380px;          /* native game width; JS scales this down if needed */
+  transform-origin: top center;
 }
 
 /* ── Header ──────────────────────────────────────────────────────────────── */
 #hdr {
   display: flex;
   width: 100%;
-  max-width: 380px;
   justify-content: space-between;
   margin-bottom: 4px;
-  padding: 0 10px;
 }
 .hbox { flex: 1; text-align: center; }
 .hlabel { font-size: 11px; color: #8a7060; display: block; text-transform: uppercase; letter-spacing: .05em; }
@@ -51,8 +56,6 @@ body {
   min-height: 16px;
   margin-bottom: 10px;
   width: 100%;
-  max-width: 380px;
-  padding: 0 10px;
 }
 
 /* ── Board ───────────────────────────────────────────────────────────────── */
@@ -425,8 +428,9 @@ body {
 </style>
 </head>
 <body>
+<div id="game-wrap">
 
-<!-- Score header — High Score and Score only -->
+<!-- Score header — Best Time and Score -->
 <div id="hdr">
   <div class="hbox">
     <span class="hlabel">Best Time</span>
@@ -443,6 +447,8 @@ body {
 <div id="tray" style="display:none"></div>
 <div id="ghost"></div>
 <button id="end-game-btn" style="display:none" onclick="endGameEarly()">End Game</button>
+
+</div><!-- /#game-wrap -->
 
 <!-- Completion screen — shown when score reaches targetScore -->
 <div id="completion-screen" style="display:none">
@@ -843,21 +849,33 @@ function buildGhost({ cells, color }) {
 
 function moveGhost(mx, my) {
   const { rows, cols } = bounds(drag.piece.cells);
-  const ghost = document.getElementById('ghost');
-  ghost.style.left = (mx - cols * CS / 2) + 'px';
-  ghost.style.top  = (my - rows * CS / 2) + 'px';
+  const ghost    = document.getElementById('ghost');
+  const wrapRect = document.getElementById('game-wrap').getBoundingClientRect();
+  // game-wrap may be CSS-scaled; divide viewport offset by scale to get
+  // the correct position in the wrapper's own CSS-pixel coordinate space.
+  const scale  = wrapRect.width / 380;
+  const localX = (mx - wrapRect.left) / scale;
+  const localY = (my - wrapRect.top)  / scale;
+  ghost.style.left = (localX - cols * CS / 2) + 'px';
+  ghost.style.top  = (localY - rows * CS / 2) + 'px';
 }
 
 // ── Grid snap ─────────────────────────────────────────────────────────────────
 
 function gridSnap(mx, my) {
   const rect = document.getElementById('board').getBoundingClientRect();
+  // getBoundingClientRect() returns post-transform viewport coordinates.
+  // Dividing by the board's native pixel width gives the current CSS scale,
+  // letting us convert viewport pointer coordinates back to the board's own
+  // CSS-pixel space where STEP, GAP, and CS are defined.
+  const NATIVE_W = SZ * CS + (SZ - 1) * GAP + 2 * GAP; // 380
+  const scale  = rect.width / NATIVE_W;
   const { rows, cols } = bounds(drag.piece.cells);
-  const px = mx - cols * CS / 2;
-  const py = my - rows * CS / 2;
+  const localX = (mx - rect.left) / scale;
+  const localY = (my - rect.top)  / scale;
   return {
-    row: Math.round((py - rect.top  - GAP) / STEP),
-    col: Math.round((px - rect.left - GAP) / STEP),
+    row: Math.round((localY - rows * CS / 2 - GAP) / STEP),
+    col: Math.round((localX - cols * CS / 2 - GAP) / STEP),
   };
 }
 
@@ -1249,6 +1267,21 @@ for (let r = 0; r < SZ; r++)
 drawBoard();          // renders the empty grid behind the overlays
 drawScores();         // populates high-score display
 showIntentionScreen(); // landing screen: duration + activity first
+
+// ── Fit game to viewport ───────────────────────────────────────────────────────
+// Scales #game-wrap down so the 380 px game fits any iPhone screen.
+// gridSnap and moveGhost both derive their own scale factor at call-time from
+// getBoundingClientRect(), so no extra state is needed — they always match.
+(function fitGame() {
+  const NATIVE_W = 380;
+  function apply() {
+    const scale = Math.min(1, window.innerWidth / NATIVE_W);
+    document.getElementById('game-wrap').style.transform =
+      scale < 1 ? `scale(${scale.toFixed(4)})` : '';
+  }
+  apply();
+  window.addEventListener('resize', apply);
+}());
 </script>
 <script>
   if ('serviceWorker' in navigator) {

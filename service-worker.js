@@ -1,4 +1,4 @@
-const CACHE_NAME = 'block-puzzle-v2';
+const CACHE_NAME = 'block-puzzle-v5';
 const ASSETS = [
   './',
   './index.html',
