@@ -1004,13 +1004,13 @@ function selectTime(mins) {
 function checkIntentionReady() {
   const hasTime     = selectedMins !== null;
   const hasActivity = document.getElementById('activity-input').value.trim().length > 0;
-  document.getElementById('start-btn').classList.toggle('ready', hasTime && hasActivity);
+  document.getElementById('start-btn').classList.toggle('ready', hasTime);
 }
 
 function confirmStart() {
   // Validate — button should already be disabled, but guard anyway
   const activityVal = document.getElementById('activity-input').value.trim();
-  if (!selectedMins || !activityVal) return;
+  if (!selectedMins) return;
   selectedActivity = activityVal;
 
   // Target score scales with chosen duration
