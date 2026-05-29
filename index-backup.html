@@ -2,30 +2,61 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Block Puzzle</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#FAE7CB">
+<!-- iOS PWA -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Block Puzzle">
+<link rel="apple-touch-icon" href="icon-180.png">
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
+html { overflow: hidden; }
 body {
   font-family: sans-serif;
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 20px;
+  /* Push content below the transparent status bar on notched iPhones */
+  padding-top: max(20px, env(safe-area-inset-top));
+  padding-bottom: env(safe-area-inset-bottom);
+  overflow: hidden;
   background: #FAE7CB;
   user-select: none;
   -webkit-user-select: none;
 }
 
-/* ── Score header ────────────────────────────────────────────────────────── */
+/* ── Game wrapper — scaled to fit any viewport ───────────────────────────── */
+#game-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 380px;          /* native game width; JS scales this down if needed */
+  transform-origin: top center;
+}
+
+/* ── Header ──────────────────────────────────────────────────────────────── */
 #hdr {
   display: flex;
-  width: 380px;
+  width: 100%;
   justify-content: space-between;
-  margin-bottom: 12px;
+  margin-bottom: 4px;
 }
 .hbox { flex: 1; text-align: center; }
 .hlabel { font-size: 11px; color: #8a7060; display: block; text-transform: uppercase; letter-spacing: .05em; }
 .hval   { font-size: 26px; font-weight: bold; display: block; color: #3a2a1a; }
+
+/* ── Task line ───────────────────────────────────────────────────────────── */
+#task-line {
+  font-size: 12px;
+  color: #9a8a7a;
+  text-align: center;
+  min-height: 16px;
+  margin-bottom: 10px;
+  width: 100%;
+}
 
 /* ── Board ───────────────────────────────────────────────────────────────── */
 #board {
@@ -35,6 +66,7 @@ body {
   gap: 2px;
   background: #C4A882;
   padding: 2px;
+  touch-action: none;
 }
 .cell { width: 40px; height: 40px; }
 
@@ -50,8 +82,9 @@ body {
   border: 2px dashed #C4A882;
   position: relative;
   cursor: grab;
+  touch-action: none;
 }
-.slot.dragging { opacity: 0.3; cursor: default; }
+.slot.dragging { opacity: 0.3; cursor: grabbing; }
 .slot.used     { opacity: 0.2; cursor: default; }
 .pcell {
   position: absolute;
@@ -64,6 +97,8 @@ body {
   pointer-events: none;
   display: none;
   z-index: 999;
+  touch-action: none;
+  filter: drop-shadow(2px 2px 4px rgba(0,0,0,0.4));
 }
 .gcell {
   position: absolute;
@@ -71,52 +106,188 @@ body {
   border: 1px solid rgba(0,0,0,0.15);
 }
 
-/* ── Level-up animation ──────────────────────────────────────────────────── */
-#levelup-overlay {
-  position: fixed;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%) scale(0.1);
-  font-size: 48px;
-  font-weight: bold;
-  color: #fff;
-  text-shadow: 0 2px 12px rgba(0,0,0,0.55);
-  pointer-events: none;
-  z-index: 1000;
-  white-space: nowrap;
-  animation: levelup 2s ease-out forwards;
-}
-@keyframes levelup {
-  0%   { transform: translate(-50%, -50%) scale(0.1); opacity: 0; }
-  25%  { transform: translate(-50%, -50%) scale(1.15); opacity: 1; }
-  55%  { transform: translate(-50%, -50%) scale(1);    opacity: 1; }
-  100% { transform: translate(-50%, -50%) scale(1);    opacity: 0; }
-}
-
-/* ── Start screen overlay ────────────────────────────────────────────────── */
-#start-screen {
+/* ── Mode selection screen ───────────────────────────────────────────────── */
+#mode-screen {
   position: fixed;
   inset: 0;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  background: rgba(250,231,203,0.75);
+  background: #FAE7CB;
   z-index: 500;
+  gap: 14px;
+  padding: 24px;
 }
-#start-btn {
-  padding: 16px 44px;
+#mode-screen h1 {
+  font-size: 34px;
+  color: #3a2a1a;
+  margin-bottom: 10px;
+  letter-spacing: -0.5px;
+}
+.mode-btn {
+  width: 320px;
+  padding: 16px 20px;
+  border: 2px solid;
+  border-radius: 10px;
+  background: #fff8f0;
+  cursor: pointer;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  transition: background 0.15s;
+}
+.mode-btn:hover { background: #fff; }
+.mode-btn-name {
+  font-size: 20px;
+  font-weight: bold;
+}
+.mode-btn-desc {
+  font-size: 13px;
+  color: #5a4a3a;
+}
+.mode-btn-time {
+  font-size: 12px;
+  color: #9a8a7a;
+  margin-top: 2px;
+}
+
+/* ── Intention screen ────────────────────────────────────────────────────── */
+#intention-screen {
+  --mode-color: #C4A882;   /* neutral warm default — no mode chosen yet */
+  position: fixed;
+  inset: 0;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: #FAE7CB;
+  z-index: 500;
+  gap: 0;
+  padding: 28px 24px;
+}
+#intention-screen h2 {
   font-size: 22px;
+  color: #3a2a1a;
+  margin-bottom: 12px;
+  text-align: center;
+  font-weight: 600;
+}
+#intention-screen .question-label {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  color: #8a7060;
+  margin-bottom: 8px;
+  margin-top: 20px;
+  text-align: center;
+}
+.time-options {
+  display: flex;
+  gap: 10px;
+}
+.time-btn {
+  width: 68px;
+  height: 52px;
+  border: 2px solid #C4A882;
+  border-radius: 8px;
+  background: #fff8f0;
+  cursor: pointer;
+  font-size: 15px;
+  font-weight: bold;
+  color: #5a4a3a;
+  transition: background 0.12s, border-color 0.12s;
+}
+.time-btn:hover   { background: #fff; }
+.time-btn.sel     { border-color: var(--mode-color); color: var(--mode-color); background: #fff; }
+
+/* Activity free-text input */
+#activity-input {
+  width: 300px;
+  padding: 10px 14px;
+  font-size: 14px;
+  color: #3a2a1a;
+  border: 1px solid #d4c0a8;
+  border-radius: 8px;
+  background: #fff8f0;
+  outline: none;
+  font-family: inherit;
+  user-select: text;
+  -webkit-user-select: text;
+}
+#activity-input::placeholder { color: #c0b0a0; }
+#activity-input:focus { border-color: var(--mode-color); }
+
+/* Start button */
+#start-btn {
+  margin-top: 22px;
+  padding: 12px 44px;
+  font-size: 17px;
   font-weight: bold;
   cursor: pointer;
-  background: #4E9FBC;
+  border-radius: 8px;
+  border: 2px solid var(--mode-color);
+  background: var(--mode-color);
   color: #fff;
-  border: none;
-  border-radius: 6px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s;
 }
-#start-btn:hover { background: #3d8eab; }
+#start-btn.ready { opacity: 1; pointer-events: auto; }
+#start-btn:hover { filter: brightness(1.08); }
 
-/* ── Buttons ─────────────────────────────────────────────────────────────── */
-#end-game-btn, #new-game-btn {
+/* ── Time-up banner ──────────────────────────────────────────────────────── */
+#time-banner {
+  display: none;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: rgba(58,42,26,0.92);
+  color: #FAE7CB;
+  padding: 18px 24px;
+  text-align: center;
+  z-index: 600;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  backdrop-filter: blur(4px);
+}
+#time-banner p {
+  font-size: 16px;
+  line-height: 1.5;
+  max-width: 320px;
+}
+#time-banner em {
+  font-style: normal;
+  font-weight: 600;
+  color: #ffd8a0;
+}
+.banner-btns {
+  display: flex;
+  gap: 12px;
+}
+.banner-btn {
+  padding: 9px 22px;
+  font-size: 14px;
+  font-weight: bold;
+  cursor: pointer;
+  border-radius: 6px;
+  border: 2px solid #FAE7CB;
+  background: transparent;
+  color: #FAE7CB;
+  transition: background 0.12s;
+}
+.banner-btn:hover { background: rgba(250,231,203,0.15); }
+.banner-btn.primary {
+  background: #FAE7CB;
+  color: #3a2a1a;
+}
+.banner-btn.primary:hover { background: #fff5e6; }
+
+/* ── End Game button ─────────────────────────────────────────────────────── */
+#end-game-btn {
   margin-top: 14px;
   padding: 10px 28px;
   font-size: 16px;
@@ -127,35 +298,143 @@ body {
   background: #FAE7CB;
   color: #3a2a1a;
 }
-#end-game-btn:hover, #new-game-btn:hover { background: #f0d8b0; }
+#end-game-btn:hover { background: #f0d8b0; }
 
-/* ── Game over message ───────────────────────────────────────────────────── */
-#msg {
-  margin-top: 20px;
-  font-size: 18px;
-  font-weight: bold;
+/* ── End screens (completion + game over) ────────────────────────────────── */
+#completion-screen, #gameover-screen {
+  position: fixed;
+  inset: 0;
+  background: #FAE7CB;
+  z-index: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.end-screen-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 32px 24px;
+  max-width: 340px;
   text-align: center;
-  max-width: 380px;
-  line-height: 1.6;
-  white-space: pre-line;
+}
+.end-screen-mode {
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.end-screen-msg {
+  font-size: 17px;
+  color: #5a4a3a;
+  line-height: 1.5;
+}
+.end-screen-score {
+  font-size: 42px;
+  font-weight: bold;
   color: #3a2a1a;
+  line-height: 1;
+}
+.end-screen-score span {
+  display: block;
+  font-size: 12px;
+  font-weight: normal;
+  color: #9a8a7a;
+  margin-top: 5px;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+}
+.end-screen-btn {
+  padding: 11px 36px;
+  font-size: 15px;
+  font-weight: bold;
+  cursor: pointer;
+  border-radius: 8px;
+  border: 2px solid #C4A882;
+  background: #fff8f0;
+  color: #3a2a1a;
+  transition: background 0.12s;
+}
+.end-screen-btn:hover { background: #fff; }
+.end-screen-btn-row {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+}
+.end-screen-time {
+  font-size: 13px;
+  color: #9a8a7a;
+  font-weight: normal;
+}
+.end-screen-activity {
+  font-size: 12px;
+  color: #b8a898;
+  font-weight: normal;
+  font-style: italic;
+}
+
+/* ── Goodbye screen ──────────────────────────────────────────────────────── */
+#goodbye-screen {
+  position: fixed;
+  inset: 0;
+  background: #1a1208;
+  z-index: 800;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+.goodbye-title {
+  font-size: 30px;
+  font-weight: bold;
+  color: #FAE7CB;
+  letter-spacing: -0.5px;
+}
+.goodbye-msg {
+  font-size: 17px;
+  color: rgba(250,231,203,0.55);
+  font-weight: normal;
+}
+.goodbye-activity {
+  font-size: 13px;
+  color: rgba(250,231,203,0.3);
+  font-style: italic;
+  margin-top: 2px;
+}
+.goodbye-footer {
+  position: absolute;
+  bottom: 36px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.goodbye-arrow {
+  font-size: 26px;
+  color: rgba(250,231,203,0.45);
+  animation: pulse-up 2.4s ease-in-out infinite;
+}
+.goodbye-swipe {
+  font-size: 11px;
+  color: rgba(250,231,203,0.22);
+  text-transform: uppercase;
+  letter-spacing: .12em;
+}
+@keyframes pulse-up {
+  0%, 100% { opacity: 0.3; transform: translateY(0); }
+  50%       { opacity: 0.8; transform: translateY(-8px); }
 }
 </style>
 </head>
 <body>
+<div id="game-wrap">
 
+<!-- Score header — Best Time and Score -->
 <div id="hdr">
   <div class="hbox">
-    <span class="hlabel">High Score</span>
-    <span id="pb" class="hval">0</span>
-  </div>
-  <div class="hbox">
-    <span class="hlabel">Daily Best</span>
-    <span id="db" class="hval">0</span>
-  </div>
-  <div class="hbox">
-    <span class="hlabel">Level</span>
-    <span id="lv" class="hval">1</span>
+    <span class="hlabel">Best Time</span>
+    <span id="bt" class="hval">--:--</span>
   </div>
   <div class="hbox">
     <span class="hlabel">Score</span>
@@ -163,14 +442,101 @@ body {
   </div>
 </div>
 
+<div id="task-line"></div>
 <div id="board"></div>
 <div id="tray" style="display:none"></div>
 <div id="ghost"></div>
-<button id="end-game-btn" style="display:none" onclick="endGame()">End Game</button>
-<div id="msg"></div>
+<button id="end-game-btn" style="display:none" onclick="endGameEarly()">End Game</button>
 
-<div id="start-screen">
-  <button id="start-btn" onclick="startGame()">Start Game</button>
+</div><!-- /#game-wrap -->
+
+<!-- Completion screen — shown when score reaches targetScore -->
+<div id="completion-screen" style="display:none">
+  <div class="end-screen-inner">
+    <div id="comp-mode-name" class="end-screen-mode"></div>
+    <div class="end-screen-msg">Well done. Your session is complete.</div>
+    <div id="comp-score-val" class="end-screen-score">0<span>points</span></div>
+    <div id="comp-time-msg" class="end-screen-time"></div>
+    <div id="comp-buttons"></div>
+    <div id="comp-activity" class="end-screen-activity"></div>
+  </div>
+</div>
+
+<!-- Game over screen — shown when no pieces can be placed -->
+<div id="gameover-screen" style="display:none">
+  <div class="end-screen-inner">
+    <div id="go-mode-name" class="end-screen-mode"></div>
+    <div class="end-screen-msg">The grid filled up.</div>
+    <div id="go-score-val" class="end-screen-score">0<span>points</span></div>
+    <div class="end-screen-btn-row">
+      <button class="end-screen-btn" onclick="returnToModeSelect()">Try Again</button>
+      <button class="end-screen-btn" onclick="showGoodbyeScreen()">I'm Done</button>
+    </div>
+    <div id="go-time-msg" class="end-screen-time"></div>
+  </div>
+</div>
+
+<!-- Goodbye screen — final resting exit screen, no buttons -->
+<div id="goodbye-screen" style="display:none">
+  <div class="goodbye-title">Block Puzzle</div>
+  <div class="goodbye-msg">See you next time.</div>
+  <div id="goodbye-activity" class="goodbye-activity"></div>
+  <div class="goodbye-footer">
+    <div class="goodbye-arrow">↑</div>
+    <div class="goodbye-swipe">swipe up to leave</div>
+  </div>
+</div>
+
+<!-- Intention screen — landing screen, shown first before mode selection -->
+<div id="intention-screen">
+  <h2>Block Puzzle</h2>
+
+  <div class="question-label">How long do you want to play?</div>
+  <div class="time-options">
+    <button class="time-btn" data-mins="5"  onclick="selectTime(5)">5 min</button>
+    <button class="time-btn" data-mins="10" onclick="selectTime(10)">10 min</button>
+    <button class="time-btn" data-mins="15" onclick="selectTime(15)">15 min</button>
+    <button class="time-btn" data-mins="20" onclick="selectTime(20)">20 min</button>
+  </div>
+
+  <div class="question-label">What's next for you?</div>
+  <input type="text" id="activity-input"
+         placeholder="e.g. make a coffee, go for a walk..."
+         oninput="checkIntentionReady()">
+
+  <button id="start-btn" onclick="confirmStart()">Continue</button>
+</div>
+
+<!-- Time-up banner — shown when the session timer expires -->
+<div id="time-banner">
+  <p id="time-banner-text">Your <em>10 minutes</em> are up.</p>
+  <div class="banner-btns">
+    <button class="banner-btn" onclick="handleBannerStartNew()">Start New</button>
+    <button class="banner-btn primary" onclick="dismissBanner()">Finish This Game</button>
+  </div>
+</div>
+
+<!-- Mode selection — shown after intention screen, and between rounds in a live session -->
+<div id="mode-screen" style="display:none">
+  <h1>Block Puzzle</h1>
+  <button class="mode-btn" style="border-color:#59B292;color:#59B292"
+          onclick="startGame('breathe')">
+    <span class="mode-btn-name" style="color:#59B292">Breathe</span>
+    <span class="mode-btn-desc">Open grid, rows score, pieces refresh as you place them</span>
+    <span class="mode-btn-time">5–8 minutes</span>
+  </button>
+  <button class="mode-btn" style="border-color:#4E9FBC;color:#4E9FBC"
+          onclick="startGame('focus')">
+    <span class="mode-btn-name" style="color:#4E9FBC">Focus</span>
+    <span class="mode-btn-desc">Some locked cells, rows and columns score, place all 3 before refresh</span>
+    <span class="mode-btn-time">8–12 minutes</span>
+  </button>
+  <button class="mode-btn" style="border-color:#7B6EA6;color:#7B6EA6"
+          onclick="startGame('flow')">
+    <span class="mode-btn-name" style="color:#7B6EA6">Flow</span>
+    <span class="mode-btn-desc">More locked cells, rows, columns and boxes all score, all pieces</span>
+    <span class="mode-btn-time">12–20 minutes</span>
+  </button>
 </div>
 
 <script>
@@ -190,80 +556,118 @@ const PIECE_COLORS = ['#59B292', '#FFC94D', '#FA6781', '#7B6EA6', '#4E9FBC', '#F
 // All 26 piece shapes, indexed 0–25.
 // Board values: 0 = empty  |  '#hex' = filled (piece colour)  |  2 = locked obstacle
 const PIECE_DEFS = [
-  /* 0 */ [[0,0]],                                                              // single
-  /* 1 */ [[0,0],[0,1]],                                                        // domino H
-  /* 2 */ [[0,0],[1,0]],                                                        // domino V
-  /* 3 */ [[0,0],[0,1],[0,2]],                                                  // tromino H
-  /* 4 */ [[0,0],[1,0],[2,0]],                                                  // tromino V
-  /* 5 */ [[0,0],[0,1],[1,0]],                                                  // L-tromino
-  /* 6 */ [[0,0],[0,1],[1,1]],                                                  // L-tromino
-  /* 7 */ [[0,0],[1,0],[1,1]],                                                  // L-tromino
-  /* 8 */ [[0,1],[1,0],[1,1]],                                                  // L-tromino
-  /* 9 */ [[0,0],[0,1],[1,0],[1,1]],                                            // 2×2 square
-  /*10 */ [[0,0],[0,1],[0,2],[0,3]],                                            // straight-4 H
-  /*11 */ [[0,0],[1,0],[2,0],[3,0]],                                            // straight-4 V
-  /*12 */ [[0,0],[0,1],[0,2],[1,0]],                                            // L-tetromino
-  /*13 */ [[0,0],[0,1],[0,2],[1,2]],                                            // J-tetromino
-  /*14 */ [[0,0],[1,0],[2,0],[2,1]],                                            // L-tetromino
-  /*15 */ [[0,0],[1,0],[2,0],[0,1]],                                            // J-tetromino
-  /*16 */ [[0,1],[1,1],[2,0],[2,1]],                                            // J-tetromino
-  /*17 */ [[0,0],[0,1],[1,1],[2,1]],                                            // L-tetromino
-  /*18 */ [[0,0],[0,1],[0,2],[0,3],[0,4]],                                      // straight-5 H
-  /*19 */ [[0,0],[1,0],[2,0],[3,0],[4,0]],                                      // straight-5 V
-  /*20 */ [[0,0],[0,1],[1,0],[1,1],[2,0],[2,1]],                                // 2×3 block
-  /*21 */ [[0,0],[0,1],[0,2],[1,0],[1,1],[1,2]],                                // 3×2 block
-  /*22 */ [[0,0],[0,1],[0,2],[1,0],[1,1],[1,2],[2,0],[2,1],[2,2]],              // 3×3 block
-  /*23 */ [[0,0],[1,0],[2,0],[2,1],[2,2]],                                      // L-pentomino (3-down + 3-across)
-  /*24 */ [[0,1],[1,0],[1,1],[1,2],[2,1]],                                      // plus / cross
-  /*25 */ [[0,0],[1,0],[1,1],[2,0],[2,1],[2,2]],                                // staircase (left-aligned)
+  /* 0 */ [[0,0]],
+  /* 1 */ [[0,0],[0,1]],
+  /* 2 */ [[0,0],[1,0]],
+  /* 3 */ [[0,0],[0,1],[0,2]],
+  /* 4 */ [[0,0],[1,0],[2,0]],
+  /* 5 */ [[0,0],[0,1],[1,0]],
+  /* 6 */ [[0,0],[0,1],[1,1]],
+  /* 7 */ [[0,0],[1,0],[1,1]],
+  /* 8 */ [[0,1],[1,0],[1,1]],
+  /* 9 */ [[0,0],[0,1],[1,0],[1,1]],
+  /*10 */ [[0,0],[0,1],[0,2],[0,3]],
+  /*11 */ [[0,0],[1,0],[2,0],[3,0]],
+  /*12 */ [[0,0],[0,1],[0,2],[1,0]],
+  /*13 */ [[0,0],[0,1],[0,2],[1,2]],
+  /*14 */ [[0,0],[1,0],[2,0],[2,1]],
+  /*15 */ [[0,0],[1,0],[2,0],[0,1]],
+  /*16 */ [[0,1],[1,1],[2,0],[2,1]],
+  /*17 */ [[0,0],[0,1],[1,1],[2,1]],
+  /*18 */ [[0,0],[0,1],[0,2],[0,3],[0,4]],
+  /*19 */ [[0,0],[1,0],[2,0],[3,0],[4,0]],
+  /*20 */ [[0,0],[0,1],[1,0],[1,1],[2,0],[2,1]],
+  /*21 */ [[0,0],[0,1],[0,2],[1,0],[1,1],[1,2]],
+  /*22 */ [[0,0],[0,1],[0,2],[1,0],[1,1],[1,2],[2,0],[2,1],[2,2]],
+  /*23 */ [[0,0],[1,0],[2,0],[2,1],[2,2]],           // L-pentomino
+  /*24 */ [[0,1],[1,0],[1,1],[1,2],[2,1]],            // plus / cross
+  /*25 */ [[0,0],[1,0],[1,1],[2,0],[2,1],[2,2]],      // staircase
 ];
 
-// ── Level configuration ───────────────────────────────────────────────────────
+// ── Mode configuration ────────────────────────────────────────────────────────
 //
-// threshold    : cumulative score required to reach this level (81 pts per level)
-// locked       : obstacle cells placed randomly when the level starts
+// locked       : obstacle cells placed randomly at game start
 // batchRefresh : false = each placed piece is replaced immediately
-//                true  = all 3 must be placed before a new trio appears
-// scoreCols    : completed columns score points
-// scoreBoxes   : completed 3×3 boxes score points
-// newPieces    : include pieces 23–25 (the three new shapes) in the pool
+//                true  = all 3 must be placed before the trio refreshes
+// scoreCols    : completed columns award 9 points
+// scoreBoxes   : completed 3×3 boxes award 9 points
+// allPieces    : true = all 26 pieces available; false = pieces 0–22 only
+// swaps        : number of piece swaps available per game
 //
-const LEVELS = [
-  /* 1 */ { threshold:   0, locked:  0, batchRefresh: false, scoreCols: true, scoreBoxes: true,  newPieces: false },
-  /* 2 */ { threshold:  81, locked:  2, batchRefresh: false, scoreCols: true, scoreBoxes: true,  newPieces: false },
-  /* 3 */ { threshold: 162, locked:  4, batchRefresh: false, scoreCols: true, scoreBoxes: true,  newPieces: false },
-  /* 4 */ { threshold: 243, locked:  6, batchRefresh: true,  scoreCols: true, scoreBoxes: false, newPieces: false },
-  /* 5 */ { threshold: 324, locked:  8, batchRefresh: true,  scoreCols: true, scoreBoxes: false, newPieces: false },
-  /* 6 */ { threshold: 405, locked: 10, batchRefresh: true,  scoreCols: true, scoreBoxes: false, newPieces: false },
-  /* 7 */ { threshold: 486, locked: 12, batchRefresh: true,  scoreCols: true, scoreBoxes: true,  newPieces: true  },
-  /* 8 */ { threshold: 567, locked: 14, batchRefresh: true,  scoreCols: true, scoreBoxes: true,  newPieces: true  },
-  /* 9 */ { threshold: 648, locked: 15, batchRefresh: true,  scoreCols: true, scoreBoxes: true,  newPieces: true  },
-];
+const MODES = {
+  breathe: {
+    locked:       0,
+    batchRefresh: false,
+    scoreCols:    false,
+    scoreBoxes:   false,
+    allPieces:    false,
+    swaps:        2,
+  },
+  focus: {
+    locked:       4,
+    batchRefresh: true,
+    scoreCols:    true,
+    scoreBoxes:   false,
+    allPieces:    false,
+    swaps:        2,
+  },
+  flow: {
+    locked:       8,
+    batchRefresh: true,
+    scoreCols:    true,
+    scoreBoxes:   true,
+    allPieces:    true,
+    swaps:        1,
+  },
+};
+
+// Mode accent colours for --mode-color CSS variable
+const MODE_COLORS = {
+  breathe: '#59B292',
+  focus:   '#4E9FBC',
+  flow:    '#7B6EA6',
+};
 
 // ── Persistence ───────────────────────────────────────────────────────────────
 
-const PB_KEY = 'bp_pb';
-function dailyKey()  { return 'bp_db_' + new Date().toISOString().slice(0, 10); }
-function loadPB()    { return parseInt(localStorage.getItem(PB_KEY)     || '0', 10); }
-function loadDaily() { return parseInt(localStorage.getItem(dailyKey()) || '0', 10); }
-function savePB(v)    { localStorage.setItem(PB_KEY,     v); }
-function saveDaily(v) { localStorage.setItem(dailyKey(), v); }
+// Best time: fastest completion (seconds) per mode. Lower = better.
+const BT_KEYS = { breathe: 'bp_bt_breathe', focus: 'bp_bt_focus', flow: 'bp_bt_flow' };
+function loadBestTime(mode) {
+  const v = localStorage.getItem(BT_KEYS[mode]);
+  return v !== null ? parseInt(v, 10) : null;
+}
+function saveBestTime(mode, secs) { localStorage.setItem(BT_KEYS[mode], secs); }
+function formatTime(secs) {
+  if (secs === null) return '--:--';
+  const m = Math.floor(secs / 60);
+  const s = secs % 60;
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
 
 // ── Game state ────────────────────────────────────────────────────────────────
 
-let board = [];   // SZ×SZ — 0:empty  '#hex':filled  2:locked
-let slots = [];   // [{cells,color}|null, …] — null = used slot (batch mode)
-let drag  = null; // { slotIdx, piece:{cells,color} }
-let over  = null; // { row, col } snapped grid position while dragging
-let dead  = false;
-let score = 0;
-let level = 1;    // 1–9
+let board         = [];    // SZ×SZ — 0:empty  '#hex':filled  2:locked
+let slots         = [];    // [{cells,color}|null, …] — null = used slot (batch mode)
+let drag          = null;  // { slotIdx, piece:{cells,color} }
+let over          = null;  // { row, col } snapped grid position while dragging
+let dead          = false;
+let score         = 0;
+let currentMode   = null;  // key into MODES
+let gameStartTime = null;  // Date.now() when current game began, for best-time tracking
+
+// ── Intention / timer state ───────────────────────────────────────────────────
+
+let selectedMins      = null;   // minutes chosen on the intention screen
+let selectedActivity  = null;   // activity string (typed by user on intention screen)
+let sessionTimer      = null;   // setTimeout handle for the countdown
+let timerEndTime      = null;   // Date.now() ms when timer fires; null if no/expired timer
+let targetScore       = 81;     // win threshold — set in confirmStart() from selectedMins
 
 // ── Piece helpers ─────────────────────────────────────────────────────────────
 
 function rnd() {
-  const cfg  = LEVELS[level - 1];
-  const pool = cfg.newPieces ? PIECE_DEFS : PIECE_DEFS.slice(0, 23);
+  const cfg  = currentMode ? MODES[currentMode] : MODES.breathe;
+  const pool = cfg.allPieces ? PIECE_DEFS : PIECE_DEFS.slice(0, 23);
   const cells = pool[Math.floor(Math.random() * pool.length)];
   const color = PIECE_COLORS[Math.floor(Math.random() * PIECE_COLORS.length)];
   return { cells, color };
@@ -296,10 +700,10 @@ function hexToRgba(hex, a) {
 
 // ── Line clearing ─────────────────────────────────────────────────────────────
 
-// Checks and clears completed rows, columns, and (at level 7+) 3×3 boxes.
+// Checks and clears completed rows, columns, and 3×3 boxes (per mode config).
 // Each completed line scores 9 points. Locked cells clear along with their line.
 function clearLines() {
-  const { scoreCols, scoreBoxes } = LEVELS[level - 1];
+  const { scoreCols, scoreBoxes } = MODES[currentMode];
   let completions = 0;
   const toClear = new Set(); // flat cell indices (r*SZ+c) to set back to 0
 
@@ -311,7 +715,7 @@ function clearLines() {
     }
   }
 
-  // Columns (level 4+)
+  // Columns
   if (scoreCols) {
     for (let c = 0; c < SZ; c++) {
       if (board.every(row => row[c])) {
@@ -321,7 +725,7 @@ function clearLines() {
     }
   }
 
-  // 3×3 boxes (level 7+)
+  // 3×3 boxes
   if (scoreBoxes) {
     for (let br = 0; br < 3; br++) {
       for (let bc = 0; bc < 3; bc++) {
@@ -357,59 +761,18 @@ function isGameOver() {
   });
 }
 
-// ── Level progression ─────────────────────────────────────────────────────────
-
-function resetBoardForLevel() {
-  board = Array.from({ length: SZ }, () => Array(SZ).fill(0));
-  const { locked } = LEVELS[level - 1];
-  let placed = 0;
-  while (placed < locked) {
-    const r = Math.floor(Math.random() * SZ);
-    const c = Math.floor(Math.random() * SZ);
-    if (board[r][c] === 0) { board[r][c] = 2; placed++; }
-  }
-  slots = [rnd(), rnd(), rnd()];
-}
-
-// Advances level(s) if the score threshold has been crossed. Returns true if
-// any level-up occurred (board and slots have been reset by resetBoardForLevel).
-function checkLevelUp() {
-  if (level >= 9) return false;
-  let leveled = false;
-  while (level < 9 && score >= LEVELS[level].threshold) {
-    level++;
-    leveled = true;
-  }
-  if (leveled) {
-    resetBoardForLevel();
-    showLevelUpAnimation(level);
-  }
-  return leveled;
-}
-
-function showLevelUpAnimation(lvl) {
-  const old = document.getElementById('levelup-overlay');
-  if (old) old.remove();
-  const el = document.createElement('div');
-  el.id = 'levelup-overlay';
-  el.textContent = `Level Up: Level ${lvl}`;
-  document.body.appendChild(el);
-  el.addEventListener('animationend', () => el.remove());
-}
-
 // ── Rendering ─────────────────────────────────────────────────────────────────
 
 function drawScores() {
   document.getElementById('sc').textContent = score;
-  document.getElementById('lv').textContent = level;
-  document.getElementById('pb').textContent = loadPB();
-  document.getElementById('db').textContent = loadDaily();
+  const bt = currentMode ? loadBestTime(currentMode) : null;
+  document.getElementById('bt').textContent = formatTime(bt);
 }
 
 function drawBoard() {
   const cells = document.querySelectorAll('.cell');
 
-  // Pre-compute which cells are in the drag preview
+  // Pre-compute drag preview cells
   const preview = new Map(); // idx → 'valid' | 'invalid'
   if (drag && over) {
     const valid = canFit(drag.piece.cells, over.row, over.col);
@@ -432,7 +795,7 @@ function drawBoard() {
     } else if (v === 2) {
       el.style.background = '#3D3D3D';
     } else if (v) {
-      el.style.background = v; // stored colour string
+      el.style.background = v;
     } else {
       el.style.background = bg;
     }
@@ -449,6 +812,7 @@ function drawTray() {
       slot.className = 'slot used';
     } else {
       slot.className = 'slot' + (drag && drag.slotIdx === idx ? ' dragging' : '');
+
       const { cells, color } = slotObj;
       const b  = bounds(cells);
       const S  = 100;
@@ -463,8 +827,6 @@ function drawTray() {
                           `width:${cs-1}px;height:${cs-1}px;background:${color}`;
         slot.appendChild(d);
       });
-
-      slot.addEventListener('mousedown', e => onSlotDown(e, idx));
     }
     tray.appendChild(slot);
   });
@@ -486,145 +848,408 @@ function buildGhost({ cells, color }) {
 }
 
 function moveGhost(mx, my) {
-  if (!drag) return;
   const { rows, cols } = bounds(drag.piece.cells);
-  const ghost = document.getElementById('ghost');
-  ghost.style.left = (mx - cols * CS / 2) + 'px';
-  ghost.style.top  = (my - rows * CS / 2) + 'px';
+  const ghost    = document.getElementById('ghost');
+  const wrapRect = document.getElementById('game-wrap').getBoundingClientRect();
+  // game-wrap may be CSS-scaled; divide viewport offset by scale to get
+  // the correct position in the wrapper's own CSS-pixel coordinate space.
+  const scale  = wrapRect.width / 380;
+  const localX = (mx - wrapRect.left) / scale;
+  const localY = (my - wrapRect.top)  / scale;
+  ghost.style.left = (localX - cols * CS / 2) + 'px';
+  ghost.style.top  = (localY - rows * CS / 2) + 'px';
 }
 
 // ── Grid snap ─────────────────────────────────────────────────────────────────
 
 function gridSnap(mx, my) {
   const rect = document.getElementById('board').getBoundingClientRect();
+  // getBoundingClientRect() returns post-transform viewport coordinates.
+  // Dividing by the board's native pixel width gives the current CSS scale,
+  // letting us convert viewport pointer coordinates back to the board's own
+  // CSS-pixel space where STEP, GAP, and CS are defined.
+  const NATIVE_W = SZ * CS + (SZ - 1) * GAP + 2 * GAP; // 380
+  const scale  = rect.width / NATIVE_W;
   const { rows, cols } = bounds(drag.piece.cells);
-  const px = mx - cols * CS / 2;
-  const py = my - rows * CS / 2;
+  const localX = (mx - rect.left) / scale;
+  const localY = (my - rect.top)  / scale;
   return {
-    row: Math.round((py - rect.top  - GAP) / STEP),
-    col: Math.round((px - rect.left - GAP) / STEP),
+    row: Math.round((localY - rows * CS / 2 - GAP) / STEP),
+    col: Math.round((localX - cols * CS / 2 - GAP) / STEP),
   };
 }
 
-// ── Event handlers ────────────────────────────────────────────────────────────
+// ── Pointer Events drag ───────────────────────────────────────────────────────
+// Single unified code path for mouse (desktop) and touch (iPhone).
+// setPointerCapture routes all pointer events to #tray even when the finger
+// moves over the board, so pointermove/pointerup always fire reliably.
+// document.elementFromPoint() reveals what is actually under the pointer.
 
-function onSlotDown(e, idx) {
-  if (dead || !slots[idx]) return;
-  e.preventDefault();
-  drag = { slotIdx: idx, piece: slots[idx] };
-  buildGhost(drag.piece);
-  moveGhost(e.clientX, e.clientY);
-  drawTray();
-}
+(function () {
+  const tray    = document.getElementById('tray');
+  const boardEl = document.getElementById('board');
+  const ghost   = document.getElementById('ghost');
 
-document.addEventListener('mousemove', e => {
-  if (!drag) return;
-  moveGhost(e.clientX, e.clientY);
-  const rect = document.getElementById('board').getBoundingClientRect();
-  const inBoard = e.clientX >= rect.left && e.clientX <= rect.right &&
-                  e.clientY >= rect.top  && e.clientY <= rect.bottom;
-  over = inBoard ? gridSnap(e.clientX, e.clientY) : null;
-  drawBoard();
-});
+  // ── Drag start ──────────────────────────────────────────────────────────────
+  tray.addEventListener('pointerdown', e => {
+    if (dead) return;
+    // Walk up from the target (could be a .pcell inside a slot)
+    const slotEl = e.target.closest('.slot:not(.used)');
+    if (!slotEl) return;
+    const idx = Array.from(tray.children).indexOf(slotEl);
+    if (idx < 0 || !slots[idx]) return;
 
-document.addEventListener('mouseup', e => {
-  if (!drag) return;
+    e.preventDefault();
+    drag = { slotIdx: idx, piece: slots[idx] };
 
-  const rect = document.getElementById('board').getBoundingClientRect();
-  const inBoard = e.clientX >= rect.left && e.clientX <= rect.right &&
-                  e.clientY >= rect.top  && e.clientY <= rect.bottom;
+    // Capture all future pointer events for this pointer to #tray.
+    // This is the critical step — without it, pointermove/pointerup stop
+    // firing the moment the finger crosses onto the board or any other element.
+    tray.setPointerCapture(e.pointerId);
 
-  if (inBoard) {
-    const snap = gridSnap(e.clientX, e.clientY);
-    if (canFit(drag.piece.cells, snap.row, snap.col)) {
-      place(drag.piece, snap.row, snap.col);
-      clearLines();
+    buildGhost(drag.piece);
+    moveGhost(e.clientX, e.clientY);
+    // drawTray is safe here because the capture is on #tray (stable element),
+    // not on the slot child that gets rebuilt.
+    drawTray();
+  });
 
-      // Level-up resets board + all slots, so only manage slots ourselves when
-      // no level-up occurred.
-      const leveled = checkLevelUp();
-      if (!leveled) {
-        if (LEVELS[level - 1].batchRefresh) {
-          slots[drag.slotIdx] = null;
-          if (slots.every(s => s === null)) slots = [rnd(), rnd(), rnd()];
-        } else {
-          slots[drag.slotIdx] = rnd();
+  // ── Drag move ───────────────────────────────────────────────────────────────
+  tray.addEventListener('pointermove', e => {
+    if (!drag) return;
+    moveGhost(e.clientX, e.clientY);
+
+    // Because pointer capture routes events to #tray, e.target is always #tray.
+    // Use elementFromPoint to discover what is actually under the pointer.
+    const underPointer = document.elementFromPoint(e.clientX, e.clientY);
+    const overBoard = underPointer &&
+                      (underPointer === boardEl || boardEl.contains(underPointer));
+    over = overBoard ? gridSnap(e.clientX, e.clientY) : null;
+    drawBoard();
+  });
+
+  // ── Shared drop / cancel logic ───────────────────────────────────────────────
+  function finishDrag(e, attemptPlace) {
+    if (!drag) return;
+
+    if (attemptPlace) {
+      const underPointer = document.elementFromPoint(e.clientX, e.clientY);
+      const overBoard = underPointer &&
+                        (underPointer === boardEl || boardEl.contains(underPointer));
+      if (overBoard) {
+        const snap = gridSnap(e.clientX, e.clientY);
+        if (canFit(drag.piece.cells, snap.row, snap.col)) {
+          place(drag.piece, snap.row, snap.col);
+          clearLines();
+          drawScores();
+
+          if (score >= targetScore) {
+            showCompletionScreen();
+          } else {
+            if (MODES[currentMode].batchRefresh) {
+              slots[drag.slotIdx] = null;
+              if (slots.every(s => s === null)) slots = [rnd(), rnd(), rnd()];
+            } else {
+              slots[drag.slotIdx] = rnd();
+            }
+            if (isGameOver()) showGameOverScreen();
+          }
         }
       }
-
-      drawScores();
-      if (isGameOver()) { dead = true; endGame(); }
     }
+
+    ghost.style.display = 'none';
+    drag = null;
+    over = null;
+    drawBoard();
+    drawTray();
   }
 
-  drag = null;
-  over = null;
-  document.getElementById('ghost').style.display = 'none';
-  drawBoard();
-  drawTray();
-});
+  // ── Drop ────────────────────────────────────────────────────────────────────
+  tray.addEventListener('pointerup', e => finishDrag(e, true));
 
-// ── Game lifecycle ────────────────────────────────────────────────────────────
+  // ── Cancelled (e.g. incoming call on iPhone) ────────────────────────────────
+  tray.addEventListener('pointercancel', e => finishDrag(e, false));
+}());
 
-function startGame() {
-  document.getElementById('start-screen').style.display = 'none';
-  document.getElementById('tray').style.display = 'flex';
-  document.getElementById('end-game-btn').style.display = '';
-  slots = [rnd(), rnd(), rnd()];
-  drawTray();
+// ── Intention screen ──────────────────────────────────────────────────────────
+
+function showIntentionScreen() {
+  // Reset intention selections for a fresh session
+  selectedMins     = null;
+  selectedActivity = null;
+
+  // Reset time buttons and activity input
+  document.querySelectorAll('.time-btn').forEach(b => b.classList.remove('sel'));
+  document.getElementById('activity-input').value = '';
+
+  // Reset Continue button
+  document.getElementById('start-btn').classList.remove('ready');
+
+  // Ensure mode screen is hidden, show intention screen
+  document.getElementById('mode-screen').style.display      = 'none';
+  document.getElementById('intention-screen').style.display = 'flex';
 }
 
-function endGame() {
+function selectTime(mins) {
+  selectedMins = mins;
+  document.querySelectorAll('.time-btn').forEach(b => {
+    b.classList.toggle('sel', parseInt(b.dataset.mins) === mins);
+  });
+  checkIntentionReady();
+}
+
+function checkIntentionReady() {
+  const hasTime     = selectedMins !== null;
+  const hasActivity = document.getElementById('activity-input').value.trim().length > 0;
+  document.getElementById('start-btn').classList.toggle('ready', hasTime && hasActivity);
+}
+
+function confirmStart() {
+  // Validate — button should already be disabled, but guard anyway
+  const activityVal = document.getElementById('activity-input').value.trim();
+  if (!selectedMins || !activityVal) return;
+  selectedActivity = activityVal;
+
+  // Target score scales with chosen duration
+  const targets = { 5: 81, 10: 243, 15: 729, 20: 1458 };
+  targetScore = targets[selectedMins];
+
+  // Move to mode selection — game starts when the player picks Breathe/Focus/Flow
+  document.getElementById('intention-screen').style.display = 'none';
+  document.getElementById('mode-screen').style.display      = 'flex';
+}
+
+function startGame(key) {
+  // Called when a mode button is clicked on the mode screen
+  document.getElementById('mode-screen').style.display = 'none';
+  selectMode(key);      // sets currentMode, builds board, draws board/tray/scores
+  updateTaskLine();     // uses currentMode + targetScore
+
+  // Only start a fresh session timer if none is already active.
+  // If the player pressed "Try Again" and returned here mid-session, the
+  // existing timer is preserved and we skip this.
+  if (sessionTimer === null && timerEndTime === null) {
+    startSessionTimer(selectedMins, selectedActivity);
+  }
+}
+
+function updateTaskLine() {
+  const msgs = {
+    breathe: `Clear rows to reach ${targetScore} points`,
+    focus:   `Clear rows and columns to reach ${targetScore} points`,
+    flow:    `Clear rows, columns and boxes to reach ${targetScore} points — colour matches score double`,
+  };
+  document.getElementById('task-line').textContent = msgs[currentMode] || '';
+}
+
+// ── Session timer ─────────────────────────────────────────────────────────────
+
+function startSessionTimer(mins, activity) {
+  if (sessionTimer) clearTimeout(sessionTimer);
+  timerEndTime = Date.now() + mins * 60 * 1000;
+  sessionTimer = setTimeout(() => {
+    sessionTimer = null;  // timer has fired — no longer pending
+    timerEndTime = null;  // mark as expired before showing banner
+    showTimeBanner(mins, activity);
+  }, mins * 60 * 1000);
+}
+
+function stopSessionTimer() {
+  if (sessionTimer) { clearTimeout(sessionTimer); sessionTimer = null; }
+  timerEndTime = null;
+}
+
+function getRemainingMins() {
+  if (!timerEndTime) return 0;
+  return Math.max(0, Math.ceil((timerEndTime - Date.now()) / 60000));
+}
+
+function showTimeBanner(mins, activity) {
+  if (dead) return; // game already over — don't pile on
+  const label = mins === 1 ? '1 minute' : `${mins} minutes`;
+  document.getElementById('time-banner-text').innerHTML =
+    `Your <em>${label}</em> are up — you're heading to: <em>${activity}</em>`;
+  document.getElementById('time-banner').style.display = 'flex';
+}
+
+function dismissBanner() {
+  document.getElementById('time-banner').style.display = 'none';
+}
+
+function handleBannerStartNew() {
+  dismissBanner();
+  stopSessionTimer();
+  returnToModeSelect();
+}
+
+// ── End screens ───────────────────────────────────────────────────────────────
+
+function showCompletionScreen() {
+  dead = true;
+  drag = null;
+  over = null;
+  dismissBanner();
+
+  // Record best time if this is a new personal best for this mode
+  const elapsedSecs = gameStartTime ? Math.floor((Date.now() - gameStartTime) / 1000) : 0;
+  const prevBest    = loadBestTime(currentMode);
+  if (prevBest === null || elapsedSecs < prevBest) saveBestTime(currentMode, elapsedSecs);
+
+  const remaining = getRemainingMins(); // capture while timer is still live
+  // Timer intentionally NOT stopped here — stopSessionTimer() only in showGoodbyeScreen()
+  document.getElementById('ghost').style.display = 'none';
+
+  const color = MODE_COLORS[currentMode];
+  const names = { breathe: 'Breathe', focus: 'Focus', flow: 'Flow' };
+
+  document.getElementById('comp-mode-name').style.color = color;
+  document.getElementById('comp-mode-name').textContent = names[currentMode];
+  document.getElementById('comp-score-val').innerHTML   = score + '<span>points</span>';
+
+  const timeEl = document.getElementById('comp-time-msg');
+  const btnsEl = document.getElementById('comp-buttons');
+  const actEl  = document.getElementById('comp-activity');
+
+  if (remaining > 0) {
+    const minWord = remaining === 1 ? 'minute' : 'minutes';
+    timeEl.textContent = `You have ${remaining} ${minWord} remaining.`;
+    btnsEl.innerHTML =
+      '<div class="end-screen-btn-row">' +
+        '<button class="end-screen-btn" onclick="returnToModeSelect()">Play Again</button>' +
+        '<button class="end-screen-btn" onclick="showGoodbyeScreen()">I\'m Done</button>' +
+      '</div>';
+  } else {
+    timeEl.textContent = '';
+    btnsEl.innerHTML =
+      '<button class="end-screen-btn" onclick="showGoodbyeScreen()">I\'m Done</button>';
+  }
+
+  actEl.textContent = selectedActivity || '';
+  document.getElementById('completion-screen').style.display = 'flex';
+}
+
+function showGameOverScreen() {
+  dead = true;
+  drag = null;
+  over = null;
+  dismissBanner();
+
+  const remaining = getRemainingMins(); // capture while timer is still live
+  // Timer intentionally NOT stopped here — stopSessionTimer() only in showGoodbyeScreen()
+  document.getElementById('ghost').style.display = 'none';
+
+  const color = MODE_COLORS[currentMode];
+  const names = { breathe: 'Breathe', focus: 'Focus', flow: 'Flow' };
+
+  document.getElementById('go-mode-name').style.color = color;
+  document.getElementById('go-mode-name').textContent = names[currentMode];
+  document.getElementById('go-score-val').innerHTML   = score + '<span>points</span>';
+
+  const timeEl = document.getElementById('go-time-msg');
+  if (remaining > 0) {
+    const minWord = remaining === 1 ? 'minute' : 'minutes';
+    timeEl.textContent = `${remaining} ${minWord} remaining in your session.`;
+  } else {
+    timeEl.textContent = '';
+  }
+
+  document.getElementById('gameover-screen').style.display = 'flex';
+}
+
+function showGoodbyeScreen() {
+  // The only function that stops the session timer.
+  // Best time was already saved by showCompletionScreen() if applicable.
+  stopSessionTimer();
+  dead = true;
+  drag = null;
+  over = null;
+  dismissBanner();
+  document.getElementById('ghost').style.display            = 'none';
+  document.getElementById('completion-screen').style.display = 'none';
+  document.getElementById('gameover-screen').style.display   = 'none';
+  document.getElementById('goodbye-activity').textContent    = selectedActivity || '';
+  document.getElementById('goodbye-screen').style.display    = 'flex';
+}
+
+function endGameEarly() {
+  // End Game button — return to mode select without recording anything
   dead = true;
   drag = null;
   over = null;
   document.getElementById('ghost').style.display = 'none';
-
-  const pb        = loadPB();
-  const daily     = loadDaily();
-  const beatPB    = score > pb;
-  const beatDaily = score > daily;
-
-  if (beatPB)    savePB(score);
-  if (beatDaily) saveDaily(score);
-
-  drawBoard();
-  drawScores();
-
-  document.getElementById('end-game-btn').style.display = 'none';
-
-  const msgEl = document.getElementById('msg');
-  let lines = [`Game Over!  Final score: ${score}`];
-  if (beatPB)         lines.push('New personal best!');
-  else if (beatDaily) lines.push('New daily best!');
-  msgEl.textContent = lines.join('\n');
-
-  const btn = document.createElement('button');
-  btn.id = 'new-game-btn';
-  btn.textContent = 'New Game';
-  btn.addEventListener('click', newGame);
-  msgEl.after(btn);
+  returnToModeSelect();
 }
 
-function newGame() {
-  const btn = document.getElementById('new-game-btn');
-  if (btn) btn.remove();
-  document.getElementById('msg').textContent = '';
+// ── Game lifecycle ────────────────────────────────────────────────────────────
+
+function selectMode(key) {
+  currentMode = key;
+  const cfg   = MODES[key];
+
+  // Hide mode screen, reveal game UI
+  document.getElementById('mode-screen').style.display = 'none';
+  document.getElementById('tray').style.display        = 'flex';
   document.getElementById('end-game-btn').style.display = '';
-  document.getElementById('tray').style.display = 'flex';
 
-  score = 0;
-  level = 1;
-  dead  = false;
-  drag  = null;
-  over  = null;
+  // Reset game state
+  score         = 0;
+  dead          = false;
+  drag          = null;
+  over          = null;
+  gameStartTime = Date.now(); // start clock for best-time tracking
 
+  // Set up board with locked cells
   board = Array.from({ length: SZ }, () => Array(SZ).fill(0));
+  let placed = 0;
+  while (placed < cfg.locked) {
+    const r = Math.floor(Math.random() * SZ);
+    const c = Math.floor(Math.random() * SZ);
+    if (board[r][c] === 0) { board[r][c] = 2; placed++; }
+  }
+
   slots = [rnd(), rnd(), rnd()];
 
   drawBoard();
   drawTray();
   drawScores();
+}
+
+function returnToModeSelect() {
+  // Timer is intentionally NOT stopped here — only showGoodbyeScreen() and
+  // handleBannerStartNew() may call stopSessionTimer().
+  dismissBanner();
+
+  // Hide all overlays and clear task line
+  document.getElementById('tray').style.display              = 'none';
+  document.getElementById('end-game-btn').style.display      = 'none';
+  document.getElementById('intention-screen').style.display  = 'none';
+  document.getElementById('completion-screen').style.display = 'none';
+  document.getElementById('gameover-screen').style.display   = 'none';
+  document.getElementById('goodbye-screen').style.display    = 'none';
+  document.getElementById('task-line').textContent           = '';
+
+  // Reset game state. selectedMins/selectedActivity/targetScore are preserved
+  // so mid-session retries don't need to re-enter the intention screen.
+  currentMode   = null;
+  gameStartTime = null;
+  score = 0;
+  dead  = false;
+  drag  = null;
+  over  = null;
+  board = Array.from({ length: SZ }, () => Array(SZ).fill(0));
+  slots = [];
+
+  drawBoard();
+  drawScores();
+
+  // Route: if a session timer is still active, skip the intention screen and go
+  // straight to mode selection. If no session exists, start from the beginning.
+  if (sessionTimer !== null || timerEndTime !== null) {
+    document.getElementById('mode-screen').style.display = 'flex';
+  } else {
+    showIntentionScreen();
+  }
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
@@ -639,8 +1264,31 @@ for (let r = 0; r < SZ; r++)
     boardEl.appendChild(d);
   }
 
-drawBoard();   // shows empty board with alternating box colours
-drawScores();  // shows persisted high-score and daily-best
+drawBoard();          // renders the empty grid behind the overlays
+drawScores();         // populates high-score display
+showIntentionScreen(); // landing screen: duration + activity first
+
+// ── Fit game to viewport ───────────────────────────────────────────────────────
+// Scales #game-wrap down so the 380 px game fits any iPhone screen.
+// gridSnap and moveGhost both derive their own scale factor at call-time from
+// getBoundingClientRect(), so no extra state is needed — they always match.
+(function fitGame() {
+  const NATIVE_W = 380;
+  function apply() {
+    const scale = Math.min(1, window.innerWidth / NATIVE_W);
+    document.getElementById('game-wrap').style.transform =
+      scale < 1 ? `scale(${scale.toFixed(4)})` : '';
+  }
+  apply();
+  window.addEventListener('resize', apply);
+}());
+</script>
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('./service-worker.js');
+    });
+  }
 </script>
 </body>
 </html>

@@ -94,10 +94,13 @@ body {
 /* ── Drag ghost ──────────────────────────────────────────────────────────── */
 #ghost {
   position: fixed;
+  left: 0;
+  top: 0;
   pointer-events: none;
   display: none;
   z-index: 999;
   touch-action: none;
+  will-change: transform;
   filter: drop-shadow(2px 2px 4px rgba(0,0,0,0.4));
 }
 .gcell {
@@ -856,8 +859,7 @@ function moveGhost(mx, my) {
   const scale  = wrapRect.width / 380;
   const localX = (mx - wrapRect.left) / scale;
   const localY = (my - wrapRect.top)  / scale;
-  ghost.style.left = (localX - cols * CS / 2) + 'px';
-  ghost.style.top  = (localY - rows * CS / 2) + 'px';
+  ghost.style.transform = `translate3d(${localX - cols * CS / 2}px, ${localY - rows * CS / 2}px, 0)`;
 }
 
 // ── Grid snap ─────────────────────────────────────────────────────────────────
@@ -1275,9 +1277,9 @@ showIntentionScreen(); // landing screen: duration + activity first
 (function fitGame() {
   const NATIVE_W = 380;
   function apply() {
-    const scale = Math.min(1, window.innerWidth / NATIVE_W);
-    document.getElementById('game-wrap').style.transform =
-      scale < 1 ? `scale(${scale.toFixed(4)})` : '';
+    const MARGIN = 16;
+    const scale = Math.min(1, (window.innerWidth - MARGIN * 2) / NATIVE_W);
+    document.getElementById('game-wrap').style.transform = `scale(${scale.toFixed(4)})`;
   }
   apply();
   window.addEventListener('resize', apply);
